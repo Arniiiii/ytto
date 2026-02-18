@@ -1,0 +1,39 @@
+---
+  BasedOnStyle: GNU
+  AccessModifierOffset: '-2'
+  AlignTrailingComments: 'true'
+  AllowAllParametersOfDeclarationOnNextLine: 'false'
+  AlwaysBreakTemplateDeclarations: 'No'
+  BreakBeforeBraces: GNU
+  ColumnLimit: '80'
+  ConstructorInitializerAllOnOneLineOrOnePerLine: 'true'
+  IncludeBlocks: Regroup
+  IndentPPDirectives: AfterHash
+  IndentWidth: '4'
+  NamespaceIndentation: All
+  BreakBeforeBinaryOperators: All
+  BreakBeforeTernaryOperators: 'true'
+  IncludeCategories:
+    - Regex:           '^"(llvm|llvm-c|clang|clang-c)/'
+      Priority:        0
+      SortPriority:    0
+      CaseSensitive:   true
+    - Regex:           '<[[:alnum:].]+>'
+      Priority:        1
+      SortPriority:    1
+    - Regex:           '<[[:alnum:].]+_+[[:alnum:].]+>'
+      Priority:        1
+      SortPriority:    2
+    - Regex:           '^((<|")(gtest|gmock|isl|json)/)'
+      Priority:        3
+      SortPriority:    3
+    - Regex:           '^(")'
+      Priority:        10
+      SortPriority:    100
+    - Regex:           '^(<|")./'
+      Priority:        11
+      SortPriority:    101
+    - Regex:           '^(<|")(.*)'
+      Priority:        15
+      SortPriority:    7
+...
