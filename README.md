@@ -4,8 +4,7 @@ RSS YouTubeToOllama is an application that takes as inputs an YouTube's RSS feed
 
 ## demo
 
-[![Watch the video](demo_thumbnail.jpg)](demo.mp4)
-
+https://github.com/user-attachments/assets/367841a5-d2a2-4a4c-bd58-e266a7c27181
 
 ## --help
 
