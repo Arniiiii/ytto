@@ -1,6 +1,6 @@
 # rss-ytto
 
-RSS YouTubeToOllama is an application that takes as inputs an YouTube's RSS feed from a channel as stdin, call's yt-dlp to get subtitles, sends it to an Ollama instance for summarization, appends it to description of a video, outputs the feed to stdout. It caches subtitles and summary from Ollama in a specified folder.
+RSS YouTubeToOllama is an application that takes as inputs a YouTube's RSS feed from a channel as stdin, call's yt-dlp to get subtitles, sends it to an Ollama instance for summarization, appends it to description of a video, outputs the feed to stdout. It caches subtitles and summary from Ollama in a specified folder.
 
 ## demo
 
