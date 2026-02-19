@@ -468,6 +468,7 @@ async_main (auto &ioc, ABCCache &cache, ABCCache &cache_subtitles,
                             data["author"] = author.get ().data ();
                             data["title"] = title.get ().data ();
                             data["description"] = description.get ().data ();
+                            data["link"] = link_str;
                             std::string summary = co_await summarize (
                                 semaphore_yt_dlp, semaphore_ollama, link_str,
                                 data, ioc, cache, cache_subtitles, cfg);
