@@ -28,7 +28,7 @@ Yes, in a close future it will be possible to use Gemini. Gemini is an in-house'
 
 No, since I am not sure if Gemini's API allows summarizing, since like a year ago I tested it wasn't possible.
 
-No, if using caching of subtitles. AFAIK legally speaking it is illegal to download subtitles of a video, if it is not your video, since it is intellectual property of a video's author. Also, it is not clear if summarization is transformative enough from legal point of view. So, even if disable caching of subtitles, I have no idea if it's completely legal, but for now it seems to be light-gray-ish. Unless someone tells me to this is illegal, I'll keep this project public. Also, I do not have a goal to monetize this project. I expect it to be used as a personal convinient thing for someone.
+No, if using caching of subtitles. AFAIK legally speaking it is illegal to download subtitles of a video, if it is not your video, since it is intellectual property of a video's author. Also, it is not clear if summarization is transformative enough from legal point of view. So, even if disable caching of subtitles, I have no idea if it's completely legal, but for now it seems to be light-gray-ish. Unless someone tells me to this is illegal, I'll keep this project public. Also, I do not have a goal to monetize this project. I expect it to be used as a personal convenient thing for someone.
 
 ### Why it is written in C++ and not, let say, in Python?
 
