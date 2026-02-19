@@ -174,14 +174,14 @@ Also, try installing libbacktrace for meaningful stacktraces for arbitrary excep
 
 ## To-Do
 
-- [ ] Allow `{{ link }}` in prompt.
+- [x] Allow `{{ link }}` in prompt.
 - [ ] Make it possible to plug in your own parser of requests from an LLM via Boost::DLL or a command.
-- [ ] Test with Gemini,
 - [ ] Make limits work for case when call to this application is done multiple times concurrently. Either:
   - [ ] make it possible to make this application an API server that just takes a YouTube URL to an RSS feed.
   - [ ] or find a good solution for monitoring list of processes in async manner on different OSes.
 - [x] Support `https` in URL.
   - [ ] Test it.
+    - [ ] Test with Gemini,
 - [ ] Fix `--help`, since it is a little bit ugly.
 - [ ] Make it installable.
 - [ ] Make CI for releasing.
