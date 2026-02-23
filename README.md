@@ -46,91 +46,83 @@ C++ over Rust since I wanted to do the app in a language that I don't use at my 
 
 ## --help
 
+````
+Post-processor for YouTube's RSS feed, so that you get summary of video inside
+the feed via sending an HTTP request to something like an Ollama instance.
+
+
+./build/YoutubeToOllama-0.0.0.1 [OPTIONS]
+
+
+OPTIONS:
+  -h,     --help              Print this help message and exit
+  -c,     --cache-folder TEXT REQUIRED
+                              Folder, in which there will be files as cache of result of
+                              summarization
+  -S,     --cache-folder-subtitles TEXT REQUIRED
+                              Folder, in which there will be files as subtitles of a specific
+                              YouTube link.
+  -L,     --language TEXT [en]
+                              yt-dlp language of subtitles
+  -u,     --url TEXT [http://127.0.0.1:11434/api/chat]
+                              URL of ?Ollama? instance in format
+                              http://127.0.0.1:11434/api/chat
+  -X,     --method TEXT [post]
+                              HTTP method by which to ask an ?Ollama? instance. Possible
+                              values: get, post, head, patch, purge etc.
+  -T,     --template TEXT [{
+    "model": "gemma3:4b-it-qat",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "{{ prompt }}"
+      }
+    ]
+}]
+                              Jinja template for HTTP request to an ?Ollama? instance.
+  -P,     --prompt TEXT [Always be brutally honest (to the point of being a little bit rude), smart, and extremely laconic.
+Do not rewrite instructions provided by user.
+You will be supplied with author's name, title, description and subtitles of a YouTube video.
+Please, provide a summary with main points.
+
+Author's name:
+
 ```
-Post-processor for YouTube's RSS feed, so that you get summary of video inside the feed via sending an HTTP request to something like an Ollama instance. For detailed help for specific argument, try `exe_name -h --flag` i.e. `exe_name -h -X` .
-
-USAGE: ./build/YoutubeToOllama-0.0.0.1 -c, --cache-folder <arg> -S, --cache-folder-subtitles <arg> [ -H, --header <arg> ] [ -h, --help <arg> ] [ -J, --jobs-requests <arg> ] [ -j, --jobs-yt-tlp <arg> ] [ -L, --language <arg> ] [ -l, --log-file <arg> ] [ --log-level <arg> ] [ -X, --method <arg> ] [ -s, --proceed-shorts ] [ -P, --prompt <arg> ] [ -T, --template <arg> ] [ -u, --url <arg> ]
-
-REQUIRED:
- -c, --cache-folder <arg>           Filepath to cache folder
-
- -S, --cache-folder-subtitles <arg> Filepath to cache folder for subtitles
-
-OPTIONAL:
- -H, --header <arg>                 HTTP header
-
-                                    Default value: Content-Type: application/json
-
- -h, --help <arg>                   Print this help.
-
- -J, --jobs-requests <arg>          Amount of concurrent request to an ?Ollama? instance sent by this application
-
-                                    Default value: 6
-
- -j, --jobs-yt-tlp <arg>            Amount of concurrent yt-dlp processes created by this application
-
-                                    Default value: 5
-
- -L, --language <arg>               yt-dlp subtitles's language
-
-                                    Default value: en
-
- -l, --log-file <arg>               Filepath to internal logs
-
-                                    Default value: ./logs.log
-
-     --log-level <arg>              Log level: tracel3,tracel2,tracel1,debug,info,notice,warning,error,critical
-
- -X, --method <arg>                 HTTP method ?Ollama?
-
-                                    Default value: post
-
- -s, --proceed-shorts               Try do with shorts
-
- -P, --prompt <arg>                 Prompt's Jinja template
-
-                                    Default value: Always be brutally honest (to the point of being a little bit rude), smart, and extremely laconic.
-                                    Do not rewrite instructions provided by user.
-                                    You will be supplied with author's name, title, description and subtitles of a YouTube video.
-                                    Please, provide a summary with main points.
-
-                                    Author's name:
-                                    \`\`\`
-                                    {{ author }}
-                                    \`\`\`
-
-                                    Title:
-                                    \`\`\`
-                                    {{ title }}
-                                    \`\`\`
-
-                                    \`\`\`
-                                    {{ description }}
-                                    \`\`\`
-
-                                    Subtitles:
-                                    \`\`\`
-                                    {{ subtitles }}
-                                    \`\`\`
-
-
- -T, --template <arg>               HTTP Jinja template
-
-                                    Default value: {
-                                        "model": "gemma3:4b-it-qat",
-                                        "stream": false,
-                                        "messages": [
-                                          {
-                                            "role": "user",
-                                            "content": "{{ prompt }}"
-                                          }
-                                        ]
-                                    }
-
- -u, --url <arg>                    URL of ?Ollama? instance
-
-                                    Default value: http://127.0.0.1:11434/api/chat
+{{ author }}
 ```
+
+Title:
+```
+{{ title }}
+```
+
+```
+{{ description }}
+```
+
+Subtitles:
+
+```
+{{ subtitles }}
+```
+]
+                              Prompt's Jinja template for an LLM
+  -H,     --header TEXT ...   HTTP headers for request to an ?Ollama? instance.
+  -l,     --log-file TEXT [./logs.log]
+                              Filepath to internal logs
+          --log-level TEXT [info]
+                              Log level:
+                              tracel3,tracel2,tracel1,debug,info,notice,warning,error,critical
+  -s,     --proceed-shorts    Try do with shorts
+  -j,     --jobs-yt-tlp UINT:POSITIVE [5]
+                              Amount of concurrent yt-dlp processes created by this
+                              application.
+  -J,     --jobs-requests UINT:POSITIVE [6]
+                              Amount of concurrent request to an ?Ollama? instance sent by this
+                              application
+
+````
 
 ## Prerequisites
 
@@ -157,12 +149,12 @@ Here Conan package manager is used. `CMakeLists.txt` is expected to work for oth
 - magic_enum
 - glaze
 - OpenSSL
-- args-parser
+- CLI11
 - fmt
 
 Also, try installing libbacktrace for meaningful stacktraces for arbitrary exceptions. Sadly, but Conan's recipe is not good for this.
 
-### Commands 
+### Commands
 
 `cd ./corral/`
 `conan create .`
@@ -176,13 +168,15 @@ Also, try installing libbacktrace for meaningful stacktraces for arbitrary excep
 
 - [x] Allow `{{ link }}` in prompt.
 - [ ] Make it possible to plug in your own parser of requests from an LLM via Boost::DLL or a command.
+  - [ ] a command
+  - [ ] a plugin interface via Boost::DLL
 - [ ] Make limits work for case when call to this application is done multiple times concurrently. Either:
   - [ ] make it possible to make this application an API server that just takes a YouTube URL to an RSS feed.
   - [ ] or find a good solution for monitoring list of processes in async manner on different OSes.
 - [x] Support `https` in URL.
   - [ ] Test it.
     - [ ] Test with Gemini,
-- [ ] Fix `--help`, since it is a little bit ugly.
+- [x] Fix `--help`, since it is a little bit ugly.
 - [ ] Make it installable.
 - [ ] Make CI for releasing.
 - [ ] Allow refusing of caching of subtitles.

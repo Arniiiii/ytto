@@ -1,13 +1,12 @@
 
 
-#include <exceptions.hpp>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <utility>
 
-#include <args-parser/all.hpp>
+#include <CLI/CLI.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/io_context.hpp>
@@ -494,37 +493,46 @@ int
 main (int argc, char *argv[])
 {
     Config cfg;
-    try
-        {
-            Args::CmdLine cmd (argc, argv);
-            cmd.addArgWithFlagAndName (
-                   'c', "cache-folder", true, true, "Filepath to cache folder",
-                   "Folder, in which there will be files as cache "
-                   "of result of summarization")
-                .addArgWithFlagAndName (
-                    'S', "cache-folder-subtitles", true, true,
-                    "Filepath to cache folder for subtitles",
+
+    CLI::App app{ "Post-processor for YouTube's RSS feed, so that you get "
+                  "summary of video inside the feed via sending an HTTP "
+                  "request to something like an Ollama instance." };
+
+    // Temporary storage for CLI11 to map types it doesn't handle natively
+    // without custom validators
+    std::string url_str = "http://127.0.0.1:11434/api/chat";
+    std::string method_str = "post";
+    std::vector<std::string> headers_raw = { "Content-Type: application/json" };
+    std::string log_level_str = "info";
+
+    app.add_option ("-c,--cache-folder", cfg.cache_file,
+                    "Folder, in which there will be files as cache of result "
+                    "of summarization")
+        ->required ();
+
+    app.add_option ("-S,--cache-folder-subtitles", cfg.cache_subtitles_file,
                     "Folder, in which there will be files as subtitles of a "
                     "specific YouTube link.")
-                .addArgWithFlagAndName ('L', "language", true, false,
-                                        "yt-dlp subtitles's language",
-                                        "yt-dlp language of subtitles", "en")
-                .addArgWithFlagAndName ('u', "url", true, false,
-                                        "URL of ?Ollama? instance",
-                                        "URL of ?Ollama? instance in format "
-                                        "http://127.0.0.1:11434/api/chat",
-                                        "http://127.0.0.1:11434/api/chat")
-                .addArgWithFlagAndName (
-                    'X', "method", true, false, "HTTP method ?Ollama?",
-                    R"(HTTP method by which to ask an ?Ollama? instance. 
-                Possible values are the same as names of enums in boost::beast::http::verb :
-                "get", "post","head", "patch","purge" etc. )",
-                    "post")
-                .addArgWithFlagAndName ('T', "template", true, false,
-                                        "HTTP Jinja template",
-                                        "Jinja template for HTTP request to an "
-                                        "?Ollama? instance.",
-                                        R"({
+        ->required ();
+
+    app.add_option ("-L,--language", cfg.language,
+                    "yt-dlp language of subtitles")
+        ->capture_default_str ()
+        ->default_val ("en");
+
+    app.add_option (
+           "-u,--url", url_str,
+           "URL of ?Ollama? instance in format http://127.0.0.1:11434/api/chat")
+        ->capture_default_str ();
+
+    app.add_option ("-X,--method", method_str,
+                    "HTTP method by which to ask an ?Ollama? instance. "
+                    "Possible values: get, post, head, patch, purge etc.")
+        ->capture_default_str ();
+
+    app.add_option ("-T,--template", cfg.http_body_template,
+                    "Jinja template for HTTP request to an ?Ollama? instance.")
+        ->default_val (R"({
     "model": "gemma3:4b-it-qat",
     "stream": false,
     "messages": [
@@ -533,16 +541,18 @@ main (int argc, char *argv[])
         "content": "{{ prompt }}"
       }
     ]
-})")
-                .addArgWithFlagAndName (
-                    'P', "prompt", true, false, "Prompt's Jinja template",
-                    "Prompt's Jinja template for an LLM",
-                    R"(Always be brutally honest (to the point of being a little bit rude), smart, and extremely laconic. 
+})");
+
+    app.add_option ("-P,--prompt", cfg.prompt_template,
+                    "Prompt's Jinja template for an LLM")
+        ->default_val (
+            R"(Always be brutally honest (to the point of being a little bit rude), smart, and extremely laconic. 
 Do not rewrite instructions provided by user.
 You will be supplied with author's name, title, description and subtitles of a YouTube video. 
 Please, provide a summary with main points.
 
 Author's name:
+
 ```
 {{ author }}
 ```
@@ -557,133 +567,73 @@ Title:
 ```
 
 Subtitles:
+
 ```
 {{ subtitles }}
 ```
-)")
-                .addMultiArgWithDefaulValues (
-                    'H', "header", true, false, "HTTP header",
-                    "HTTP headers for request to an ?Ollama? instance.",
-                    { "Content-Type: application/json" })
-                .addArgWithFlagAndName (
-                    'l', "log-file", true, false, "Filepath to internal logs",
-                    "Filepath to internal logs", "./logs.log")
-                .addArgWithNameOnly ("log-level", true, false,
-                                     "Log level: "
-                                     "tracel3,tracel2,tracel1,debug,info,"
-                                     "notice,warning,error,critical",
-                                     "info")
-                .addArgWithFlagAndName ('s', "proceed-shorts", false, false,
-                                        "Try do with shorts")
-                .addArgWithFlagAndName ('j', "jobs-yt-tlp", true, false,
-                                        "Amount of concurrent yt-dlp processes "
-                                        "created by this application",
-                                        "Amount of concurrent yt-dlp processes "
-                                        "created by this application.",
-                                        "5")
-                .addArgWithFlagAndName (
-                    'J', "jobs-requests", true, false,
-                    "Amount of concurrent request to an ?Ollama? instance "
-                    "sent by this application",
-                    "Amount of concurrent request to an ?Ollama? instance "
-                    "sent by this application",
-                    "6")
-                .addHelp (
-                    true,
-                    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-                    argv[0],
-                    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-                    "Post-processor for YouTube's RSS feed, so that you get "
-                    "summary of "
-                    "video inside the feed via sending an HTTP request to "
-                    "something "
-                    "like an Ollama instance. For detailed help for specific "
-                    "argument, try `exe_name -h --flag` i.e. `exe_name -h -X` "
-                    ".",
-                    1000);
-            cmd.parse ();
+)");
 
-            boost::beast::http::fields headers;
-            // This loop could be optimized, but good enough for now.
-            for (const std::string &header : cmd.values ("-H"))
+    app.add_option ("-H,--header", headers_raw,
+                    "HTTP headers for request to an ?Ollama? instance.")
+        ->take_all ();
+
+    app.add_option ("-l,--log-file", cfg.log_file, "Filepath to internal logs")
+        ->default_val ("./logs.log");
+
+    app.add_option (
+           "--log-level", log_level_str,
+           "Log level: "
+           "tracel3,tracel2,tracel1,debug,info,notice,warning,error,critical")
+        ->default_val ("info");
+
+    app.add_flag ("-s,--proceed-shorts", cfg.proceed_with_shorts,
+                  "Try do with shorts");
+
+    app.add_option (
+           "-j,--jobs-yt-tlp", cfg.concurrency_yt_dlp,
+           "Amount of concurrent yt-dlp processes created by this application.")
+        ->check (CLI::PositiveNumber)
+        ->default_val (5);
+
+    app.add_option ("-J,--jobs-requests", cfg.concurrency_ollama,
+                    "Amount of concurrent request to an ?Ollama? instance sent "
+                    "by this application")
+        ->check (CLI::PositiveNumber)
+        ->default_val (6);
+    try
+        {
+            app.parse (argc, argv);
+
+            // Post-processing complex types
+            cfg.url = boost::urls::url (url_str);
+
+            auto verb_opt
+                = magic_enum::enum_cast<boost::beast::http::verb> (method_str);
+            if (!verb_opt)
                 {
-                    std::vector<std::string> splitted;
-                    boost::algorithm::split (splitted, header,
-                                             [] (char character)
-                                                 { return character == ':'; });
-                    for (auto &str : splitted)
+                    throw CLI::ValidationError (
+                        "method", "Invalid HTTP method: " + method_str);
+                }
+            cfg.method = *verb_opt;
+
+            cfg.log_level = quill::loglevel_from_string (log_level_str);
+
+            for (const auto &header_raw_str : headers_raw)
+                {
+                    std::vector<std::string> parts;
+                    boost::split (parts, header_raw_str,
+                                  boost::is_any_of (":"));
+                    if (parts.size () >= 2)
                         {
-                            boost::algorithm::trim (str);
+                            std::string key = boost::trim_copy (parts[0]);
+                            std::string val = boost::trim_copy (parts[1]);
+                            cfg.headers.insert (key, val);
                         }
-                    headers.insert (splitted.at (0), splitted.at (1));
-                };
-            cfg = Config{
-                .language = cmd.value ("-L"),
-                .prompt_template = cmd.value ("-P"),
-                .http_body_template = cmd.value ("-T"),
-                .url = boost::urls::url (cmd.value ("-u")),
-                .method = magic_enum::enum_cast<boost::beast::http::verb> (
-                              cmd.value ("-X"))
-                              .value (),
-                .headers = headers,
-                .cache_file = cmd.value ("-c"),
-                .cache_subtitles_file = cmd.value ("-S"),
-                .log_file = cmd.value ("-l"),
-                .log_level
-                = quill::loglevel_from_string (cmd.value ("--log-level")),
-                .concurrency_yt_dlp = std::invoke (
-                    [&] ()
-                        {
-                            auto an_integer = std::stoll (cmd.value ("-j"));
-                            if (an_integer < 0)
-                                {
-                                    throw OmegaException<std::string> (
-                                        "Received value for concurrency for "
-                                        "yt-dlp is negative, while it has to "
-                                        "be a positive integer.",
-                                        cmd.value ("-j"));
-                                }
-                            return static_cast<size_t> (an_integer);
-                        }),
-                .concurrency_ollama = std::invoke (
-                    [&] ()
-                        {
-                            auto an_integer = std::stoll (cmd.value ("-J"));
-                            if (an_integer < 0)
-                                {
-                                    throw OmegaException<std::string> (
-                                        "Received value for concurrency for "
-                                        "ollama is negative, while it has to "
-                                        "be a positive integer.",
-                                        cmd.value ("-J"));
-                                }
-                            return static_cast<size_t> (an_integer);
-                        }),
-                .proceed_with_shorts = cmd.isDefined ("-s")
-            };
+                }
         }
-    catch (const Args::HelpHasBeenPrintedException &)
+    catch (const CLI::ParseError &e)
         {
-            return 0;
-        }
-    catch (Args::BaseException &e)
-        {
-
-            boost::stacktrace::basic_stacktrace<
-                std::allocator<boost::stacktrace::frame>>
-                trace
-                = boost::stacktrace::stacktrace::from_current_exception ();
-
-            fmt::print (
-                std::cerr,
-                "Oohh, look at you, who got an exception, my cutie lovely guy. "
-                "\nThis is an exception from args-parser library. Here's "
-                ".desc():\n\n{}\n\nHere's an attempt to get backtrace of it "
-                "via "
-                "boost::stacktrace and libbacktrace... Hope it works or kill "
-                "youself debugging this shit.\n{}\n",
-                e.desc (), boost::stacktrace::to_string (trace));
-            return std::to_underlying (ReturnCodes::FailDuringParsingCmdValues);
+            return app.exit (e);
         }
     catch (OmegaException<std::string> &e)
         {
