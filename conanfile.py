@@ -15,7 +15,7 @@ class CompressorRecipe(ConanFile):
         self.requires("boost/[>=1.88.0 <1.90.0]")
         # self.requires("gtest/[~1]")
         self.requires("fmt/[~12]")
-        self.requires("args-parser/[~6]")
+        self.requires("cli11/[~2]")
         self.requires("magic_enum/[~0]")
         self.requires("inja/[~3]")
         self.requires("quill/[~11]")
