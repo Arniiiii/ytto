@@ -7,7 +7,7 @@
 #include <glaze/json.hpp>
 #include <glaze/util/expected.hpp>
 
-#include "yto/omega_exception.hpp"
+#include "ytto/omega_exception.hpp"
 
 class OllamaParser
 {
