@@ -1,10 +1,15 @@
 # rss-ytto
 
-RSS YouTubeToOllama is an application that takes as inputs a YouTube's RSS feed from a channel as stdin, call's yt-dlp to get subtitles, sends it to an Ollama instance for summarization, appends it to description of a video, outputs the feed to stdout. It caches subtitles and summary from Ollama in a specified folder.
+RSS YouTubeToOllama is an application that adds summarization of YouTube videos into RSS feed of a channel into description of one. The app has two modes
 
-## Demo
+1. Single-channel use via stdin: takes a YouTube's RSS feed from a channel as stdin, call's yt-dlp to get subtitles, sends it to an Ollama instance for summarization, appends it to description of a video, outputs the feed to stdout. It caches subtitles and summary from Ollama in a specified folder.
+1. Multichannel use via server: you deploy somewhere the app in the server mode via adding `-A -p 8000`. Then you use for different feeds something like `curl -X GET http://127.0.0.1:8000/ -d '{"url":"https://www.youtube.com/feeds/videos.xml?channel_id=UCtwentytwocharactersbase64"}'`. It is better than using the single-channel mode in one thing: limits of requests per some time for YouTube or an LLM. In the single-channel mode limits (the one you can set via `-j 5 -J 6`) apply only to the single feed processing, while with multichannel mode the limits apply to the server, therefore semi-globally for a PC.
+
+## Demo (stdin)
 
 https://github.com/user-attachments/assets/367841a5-d2a2-4a4c-bd58-e266a7c27181
+
+In the demo I used the [RSS Guard](https://github.com/martinrotter/rssguard) client.
 
 ## Concerns
 
@@ -28,7 +33,7 @@ Yes, in a close future it will be possible to use Gemini. Gemini is an in-house'
 
 No, since I am not sure if Gemini's API allows summarizing, since like a year ago I tested it wasn't possible.
 
-No, if using caching of subtitles. AFAIK legally speaking it is illegal to download subtitles of a video, if it is not your video, since it is intellectual property of a video's author. Also, it is not clear if summarization is transformative enough from legal point of view. So, even if disable caching of subtitles, I have no idea if it's completely legal, but for now it seems to be light-gray-ish. Unless someone tells me to this is illegal, I'll keep this project public. Also, I do not have a goal to monetize this project. I expect it to be used as a personal convenient thing for someone.
+No, if using caching of subtitles. AFAIK legally speaking it is illegal to download subtitles of a video, if it is not your video, since it is intellectual property of a video's author. Also, it is not clear if summarization is transformative enough from legal point of view. So, even if disable caching of subtitles, I have no idea if it's completely legal, but for now it seems to be light-gray-ish. Unless someone tells me to this is illegal, I'll keep this project public. Also, I do not have any goal to monetize this project. I expect it to be used as a personal convenient tool for someone.
 
 ### Why it is written in C++ and not, let say, in Python?
 
@@ -51,7 +56,7 @@ Post-processor for YouTube's RSS feed, so that you get summary of video inside
 the feed via sending an HTTP request to something like an Ollama instance.
 
 
-./build/YoutubeToOllama-0.0.0.1 [OPTIONS]
+./build/YoutubeToOllama-0.0.0.2 [OPTIONS]
 
 
 OPTIONS:
@@ -115,13 +120,16 @@ Subtitles:
                               Log level:
                               tracel3,tracel2,tracel1,debug,info,notice,warning,error,critical
   -s,     --proceed-shorts    Try do with shorts
+  -A,     --enable-server [0]
+                              Enable server
+  -p,     --port :POSITIVE [8000]
+                              Server's port
   -j,     --jobs-yt-tlp UINT:POSITIVE [5]
                               Amount of concurrent yt-dlp processes created by this
                               application.
   -J,     --jobs-requests UINT:POSITIVE [6]
                               Amount of concurrent request to an ?Ollama? instance sent by this
-                              application
-
+                              application`
 ````
 
 ## Prerequisites
@@ -151,17 +159,24 @@ Here Conan package manager is used. `CMakeLists.txt` is expected to work for oth
 - OpenSSL
 - CLI11
 - fmt
+- google's re2
 
-Also, try installing libbacktrace for meaningful stacktraces for arbitrary exceptions. Sadly, but Conan's recipe is not good for this.
+Also, try installing libbacktrace for meaningful stacktraces for arbitrary exceptions. Sadly, but Conan's recipe for the libbacktrace is not good: it does not provide dynamic library file for linking.
 
 ### Commands
 
 `cd ./corral/`
+
 `conan create .`
+
 `cd ..`
+
 `conan install . --build=missing --output-folder=./build --update`
+
 `cmake -S . -B ./build`
+
 `cmake --build ./build --verbose`
+
 `./build/YoutubeToOllama`
 
 ## To-Do
@@ -170,14 +185,20 @@ Also, try installing libbacktrace for meaningful stacktraces for arbitrary excep
 - [ ] Make it possible to plug in your own parser of requests from an LLM via Boost::DLL or a command.
   - [ ] a command
   - [ ] a plugin interface via Boost::DLL
-- [ ] Make limits work for case when call to this application is done multiple times concurrently. Either:
-  - [ ] make it possible to make this application an API server that just takes a YouTube URL to an RSS feed.
+- [ ] With default settings we hit YouTube via yt-dlp with `429 Too many requests`.
+  - [ ] Make smart retry with timeouts
+  - [ ] Lower default for parallel invocation of yt-dlp
+- [x] Make limits work for case when call to this application is done multiple times concurrently. Either:
+  - [x] make it possible to make this application an API server that just takes a YouTube URL to an RSS feed.
+    - [x] enable server API via `-A -p 8000` and use something like: `curl -X GET http://127.0.0.1:8000/ -d '{"url":"https://www.youtube.com/feeds/videos.xml?channel_id=UCtwentytwocharactersbase64"}'`
   - [ ] or find a good solution for monitoring list of processes in async manner on different OSes.
+    - There's no solution in C++ in form of one library.
 - [x] Support `https` in URL.
-  - [ ] Test it.
+  - [x] Test it.
     - [ ] Test with Gemini,
 - [x] Fix `--help`, since it is a little bit ugly.
-- [ ] Make it installable.
+- [x] Make it installable.
+  - [ ] Only installs binary. Is it ok? Should we install also the lib? CPack?
 - [ ] Make CI for releasing.
 - [ ] Allow refusing of caching of subtitles.
 
