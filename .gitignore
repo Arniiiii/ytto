@@ -4,3 +4,4 @@ tags
 /cpm_modules
 .DS_Store
 /.cache
+CMakeUserPresets.json
