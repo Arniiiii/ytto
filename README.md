@@ -201,6 +201,7 @@ Also, try installing libbacktrace for meaningful stacktraces for arbitrary excep
   - [ ] Only installs binary. Is it ok? Should we install also the lib? CPack?
 - [ ] Make CI for releasing.
 - [ ] Allow refusing of caching of subtitles.
+- [ ] What to do with cases when downloading and summarization takes more than 2 minutes?
 
 ## License
 
