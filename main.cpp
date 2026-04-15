@@ -126,8 +126,8 @@ enum class ReturnCodes : int
 namespace
 {
 
-    corral::Task<std::string> get_subtitles(auto& ioc, std::string const& link,
-                                            Config const& cfg)
+    corral::Task<std::expected<std::string, std::string>> get_subtitles(
+        auto& ioc, std::string const& link, Config const& cfg)
     {
         net::readable_pipe rp{ioc};
         net::readable_pipe rp_err{ioc};
@@ -163,15 +163,22 @@ namespace
                     }
             };
 
+        auto wait_proc = [](boost::process::process& p) -> corral::Task<int>
+            {
+                auto [ec, exit_code]
+                    = co_await p.async_wait(corral::asio_nothrow_awaitable);
+                co_return exit_code;
+            };
+
         LOG_INFO(logger, "Called yt-dlp for {} with {} language", link,
                  cfg.language);
         auto [ec_proc, subtitles_received, std_err_of_the_process]
-            = co_await corral::allOf(proc.async_wait(corral::asio_awaitable),
-                                     read_loop(rp), read_loop(rp_err));
+            = co_await corral::allOf(wait_proc(proc), read_loop(rp),
+                                     read_loop(rp_err));
 
-        if (not std_err_of_the_process.empty())
+        if (not std_err_of_the_process.empty() || ec_proc != 0)
             {
-                throw std::logic_error(fmt::format(
+                co_return std::unexpected(fmt::format(
                     "Failed to do yt-dlp: ec: {}\nstderr: {}\nstdout: {}",
                     ec_proc, std_err_of_the_process, subtitles_received));
             }
@@ -179,7 +186,7 @@ namespace
         co_return subtitles_received;
     }
 
-    corral::Task<std::string> typical_http_request(
+    corral::Task<std::expected<std::string, std::string>> typical_http_request(
         auto& ioc, std::string const& request_body, const boost::url& url,
         beast::http::verb method, beast::http::fields headers)
     {
@@ -189,15 +196,23 @@ namespace
                   "DNS look-up of an URL... "
                   "host: {} port:{}",
                   std::string(url.host()), std::string(url.port()));
-        net::ip::basic_resolver_results<boost::asio::ip::tcp> const results
-            = co_await resolver.async_resolve(url.host(), url.port(),
-                                              corral::asio_awaitable);
+        auto [ec_resolve, results] = co_await resolver.async_resolve(
+            url.host(), url.port(), corral::asio_nothrow_awaitable);
+        if (ec_resolve)
+            {
+                co_return std::unexpected(ec_resolve.message());
+            }
 
         auto stream = beast::tcp_stream{ioc};
         stream.expires_after(std::chrono::seconds(HTTP_MAX_TIME_TIMEOUT_RFC));
 
         LOG_DEBUG(logger, "Trying to connect to an URL...");
-        co_await stream.async_connect(results, corral::asio_awaitable);
+        auto [ec_connect, ep] = co_await stream.async_connect(
+            results, corral::asio_nothrow_awaitable);
+        if (ec_connect)
+            {
+                co_return std::unexpected(ec_connect.message());
+            }
         LOG_DEBUG(logger, "Successfully.");
 
         LOG_DEBUG(logger,
@@ -217,62 +232,58 @@ namespace
         stream.expires_after(MAX_PROMPT_TIME);
 
         LOG_INFO(logger, "Sending request to an LLM...");
-        co_await beast::http::async_write(stream, request,
-                                          corral::asio_awaitable);
+        auto [ec_write, bytes_written] = co_await beast::http::async_write(
+            stream, request, corral::asio_nothrow_awaitable);
+        if (ec_write)
+            {
+                co_return std::unexpected(ec_write.message());
+            }
 
         beast::flat_buffer buffer(MAX_EXPECTED_CHARACTERS);
 
         beast::http::response<http::string_body> response;
 
         LOG_INFO(logger, "Waiting for response...");
-        co_await beast::http::async_read(stream, buffer, response,
-                                         corral::asio_awaitable);
+        auto [ec_read, bytes_read] = co_await beast::http::async_read(
+            stream, buffer, response, corral::asio_nothrow_awaitable);
+        if (ec_read)
+            {
+                co_return std::unexpected(ec_read.message());
+            }
         LOG_INFO(logger, "Received response.");
 
         LOG_DEBUG(logger, "Trying to close connection.");
 
         beast::error_code error_code;
-        // NOLINTBEGIN(bugprone-unused-return-value,
-        // cert-err33-c)
         stream.socket().shutdown(net::ip::tcp::socket::shutdown_both,
                                  error_code);
-        // NOLINTEND(bugprone-unused-return-value,
-        // cert-err33-c)
 
-        // not_connected happens sometimes
-        // so don't bother reporting it.
-        //
         if (error_code && error_code != beast::errc::not_connected)
             {
-                throw boost::system::system_error(error_code, "shutdown");
+                co_return std::unexpected(error_code.message());
             }
         LOG_DEBUG(logger, "Supposedly closed connection.");
 
         if (response.result() != http::status::ok)
             {
-                throw std::logic_error("returned with status not 200");
+                co_return std::unexpected("returned with status not 200");
             }
 
         co_return response.body();
     }
 
-    corral::Task<std::string> typical_https_request(
+    corral::Task<std::expected<std::string, std::string>> typical_https_request(
         auto& ioc, std::string const& request_body, boost::url const& url,
         beast::http::verb method, const beast::http::fields& headers)
     {
         net::ssl::context sslCtx(boost::asio::ssl::context::tlsv13);
 
-        // This holds the root certificate used for verification
-        // load_root_certificates(sslCtx);
-
-        // Verify the remote server's certificate
         sslCtx.set_verify_mode(net::ssl::verify_peer);
         sslCtx.set_default_verify_paths();
 
         auto resolver = net::ip::tcp::resolver{ioc};
         net::ssl::stream<beast::tcp_stream> stream(ioc, sslCtx);
-        //
-        // Set the expected hostname in the peer certificate for verification
+
         stream.set_verify_callback(
             ssl::host_name_verification(url.host_name()));
 
@@ -280,30 +291,44 @@ namespace
                   "DNS look-up of an URL... "
                   "host: {} port:{}",
                   std::string(url.host()), std::string(url.port()));
-        net::ip::basic_resolver_results<boost::asio::ip::tcp> const results
-            = co_await resolver.async_resolve(
-                url.host(), url.port() == "" ? "443" : url.port(),
-                corral::asio_awaitable);
+        auto [ec_resolve, results] = co_await resolver.async_resolve(
+            url.host(), url.port() == "" ? "443" : url.port(),
+            corral::asio_nothrow_awaitable);
+
+        if (ec_resolve)
+            {
+                co_return std::unexpected(ec_resolve.message());
+            }
 
         if (!SSL_set_tlsext_host_name(stream.native_handle(),
                                       url.host_name().c_str()))
             {
-                throw beast::system_error(static_cast<int>(::ERR_get_error()),
-                                          net::error::get_ssl_category());
+                co_return std::unexpected(
+                    beast::system_error(static_cast<int>(::ERR_get_error()),
+                                        net::error::get_ssl_category())
+                        .what());
             }
 
         beast::get_lowest_layer(stream).expires_after(
             std::chrono::seconds(HTTP_MAX_TIME_TIMEOUT_RFC));
 
         LOG_DEBUG(logger, "Trying to connect to...");
-        co_await beast::get_lowest_layer(stream).async_connect(
-            results, corral::asio_awaitable);
+        auto [ec_connect, ep]
+            = co_await beast::get_lowest_layer(stream).async_connect(
+                results, corral::asio_nothrow_awaitable);
+        if (ec_connect)
+            {
+                co_return std::unexpected(ec_connect.message());
+            }
         LOG_DEBUG(logger, "Successfully.");
 
-        // DO SSL HANDSHAKE
         LOG_DEBUG(logger, "Trying to do SSL handshake...");
-        co_await stream.async_handshake(ssl::stream_base::client,
-                                        corral::asio_awaitable);
+        auto ec_handshake = co_await stream.async_handshake(
+            ssl::stream_base::client, corral::asio_nothrow_awaitable);
+        if (ec_handshake)
+            {
+                co_return std::unexpected(ec_handshake.message());
+            }
         LOG_DEBUG(logger, "Successfully.");
 
         LOG_DEBUG(logger,
@@ -323,52 +348,48 @@ namespace
         beast::get_lowest_layer(stream).expires_after(MAX_PROMPT_TIME);
 
         LOG_INFO(logger, "Sending request to an LLM...");
-        co_await beast::http::async_write(stream, request,
-                                          corral::asio_awaitable);
+        auto [ec_write, bytes_written] = co_await beast::http::async_write(
+            stream, request, corral::asio_nothrow_awaitable);
+        if (ec_write)
+            {
+                co_return std::unexpected(ec_write.message());
+            }
 
         beast::flat_buffer buffer(MAX_EXPECTED_CHARACTERS);
 
         beast::http::response<http::string_body> response;
 
         LOG_INFO(logger, "Waiting for response...");
-        co_await beast::http::async_read(stream, buffer, response,
-                                         corral::asio_awaitable);
+        auto [ec_read, bytes_read] = co_await beast::http::async_read(
+            stream, buffer, response, corral::asio_nothrow_awaitable);
+        if (ec_read)
+            {
+                co_return std::unexpected(ec_read.message());
+            }
         LOG_INFO(logger, "Received response.");
 
         LOG_DEBUG(logger, "Trying to close connection.");
 
-        beast::error_code error_code;
-        // NOLINTBEGIN(bugprone-unused-return-value,
-        // cert-err33-c)
         auto ec
             = co_await stream.async_shutdown(corral::asio_nothrow_awaitable);
-        // beast::get_lowest_layer (stream).socket ().shutdown (
-        //     net::ip::tcp::socket::shutdown_both, error_code);
-        // NOLINTEND(bugprone-unused-return-value,
-        // cert-err33-c)
-
-        // not_connected happens sometimes
-        // so don't bother reporting it.
 
         if (ec && ec != net::ssl::error::stream_truncated)
             {
-                throw boost::system::system_error(ec, "shutdown");
+                co_return std::unexpected(ec.message());
             }
 
         LOG_DEBUG(logger, "Supposedly closed connection.");
 
         if (response.result() != http::status::ok)
             {
-                throw boost::system::system_error(
-                    ec, "returned with status not 200");
+                co_return std::unexpected("returned with status not 200");
             }
 
         co_return response.body();
     }
 
-    corral::Task<std::string> request_to_LLM(auto& ioc,
-                                             std::string& request_body,
-                                             Config const& cfg)
+    corral::Task<std::expected<std::string, std::string>> request_to_LLM(
+        auto& ioc, std::string& request_body, Config const& cfg)
     {
         if ("https" == cfg.url.scheme())
             {
@@ -382,13 +403,11 @@ namespace
             }
     }
 
-    corral::Task<std::string> summarize(corral::Semaphore& semaphore_yt_dlp,
-                                        corral::Semaphore& semaphore_ollama,
-                                        std::string const& link_str,
-                                        inja::json& data, auto& ioc,
-                                        ABCCache& cache,
-                                        ABCCache& cache_subtitles,
-                                        Config const& cfg)
+    corral::Task<std::expected<std::string, std::string>> summarize(
+        corral::Semaphore& semaphore_yt_dlp,
+        corral::Semaphore& semaphore_ollama, std::string const& link_str,
+        inja::json& data, auto& ioc, ABCCache& cache, ABCCache& cache_subtitles,
+        Config const& cfg)
     {
         LOG_INFO(logger, "Checking cache...");
         std::optional<std::string> possible_res = cache.get(link_str);
@@ -413,8 +432,12 @@ namespace
 
                 {
                     auto lock = co_await semaphore_yt_dlp.lock();
-                    subtitles_received
-                        = co_await get_subtitles(ioc, link_str, cfg);
+                    auto sub_res = co_await get_subtitles(ioc, link_str, cfg);
+                    if (!sub_res)
+                        {
+                            co_return std::unexpected(sub_res.error());
+                        }
+                    subtitles_received = std::move(*sub_res);
                 }
 
                 LOG_INFO(logger, "Received subtitles!");
@@ -444,7 +467,12 @@ namespace
 
         {
             auto lock = co_await semaphore_ollama.lock();
-            LLM_res = co_await request_to_LLM(ioc, request_body, cfg);
+            auto llm_res = co_await request_to_LLM(ioc, request_body, cfg);
+            if (!llm_res)
+                {
+                    co_return std::unexpected(llm_res.error());
+                }
+            LLM_res = std::move(*llm_res);
         }
 
         OllamaParser parser;
@@ -508,17 +536,25 @@ namespace
                                 data["title"] = title.get().data();
                                 data["description"] = description.get().data();
                                 data["link"] = link_str;
-                                std::string summary = co_await summarize(
+                                auto summary_res = co_await summarize(
                                     semaphore_yt_dlp, semaphore_ollama,
                                     link_str, data, ioc, cache, cache_subtitles,
                                     cfg);
+
+                                if (!summary_res)
+                                    {
+                                        LOG_INFO(logger,
+                                                 "Failed to summarize: {}",
+                                                 summary_res.error());
+                                        co_return;
+                                    }
 
                                 LOG_INFO(logger,
                                          "Appending LLM's result to "
                                          "entry's description...");
                                 std::string new_description = fmt::format(
                                     "{}\n\nLLM's result:\n{}",
-                                    description.get().data(), summary);
+                                    description.get().data(), *summary_res);
                                 description.get().put("", new_description);
                                 LOG_INFO(logger,
                                          "Successfully appended, I guess...");
@@ -572,7 +608,6 @@ namespace
         Config const& cfg, corral::Semaphore& semaphore_yt_dlp,
         corral::Semaphore& semaphore_ollama)
     {
-        // Returns a bad request response
         auto const bad_request = [&req](beast::string_view why)
             {
                 http::response<http::string_body> res{http::status::bad_request,
@@ -585,41 +620,23 @@ namespace
                 return res;
             };
 
-        // // Returns a not found response
-        // auto const not_found = [&req](beast::string_view target)
-        //     {
-        //         http::response<http::string_body>
-        //         res{http::status::not_found,
-        //                                               req.version()};
-        //         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        //         res.set(http::field::content_type, "text/html");
-        //         res.keep_alive(req.keep_alive());
-        //         res.body() = "The resource '" + std::string(target)
-        //                      + "' was not found.";
-        //         res.prepare_payload();
-        //         return res;
-        //     };
+        auto const server_error = [&req](beast::string_view what)
+            {
+                http::response<http::string_body> res{
+                    http::status::internal_server_error, req.version()};
+                res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+                res.set(http::field::content_type, "text/html");
+                res.keep_alive(req.keep_alive());
+                res.body() = "An error occurred: '" + std::string(what) + "'";
+                res.prepare_payload();
+                return res;
+            };
 
-        // // Returns a server error response
-        // auto const server_error = [&req](beast::string_view what)
-        //     {
-        //         http::response<http::string_body> res{
-        //             http::status::internal_server_error, req.version()};
-        //         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        //         res.set(http::field::content_type, "text/html");
-        //         res.keep_alive(req.keep_alive());
-        //         res.body() = "An error occurred: '" + std::string(what) +
-        //         "'"; res.prepare_payload(); return res;
-        //     };
-
-        // Make sure we can handle the method
         if (req.method() != http::verb::get)
             {
-                // req.method() != http::verb::head)
                 co_return bad_request("Unknown HTTP-method");
             }
 
-        // Request path must be absolute and not contain "..".
         if (req.target().empty() || req.target()[0] != '/'
             || req.target().find("..") != beast::string_view::npos)
             {
@@ -646,12 +663,17 @@ namespace
 
         boost::url url_youtube_rss_feed(json.url);
 
-        std::string youtube_rss_feed = co_await typical_https_request(
+        auto rss_res = co_await typical_https_request(
             ioc, "", url_youtube_rss_feed, http::verb::get, http::fields{});
 
+        if (!rss_res)
+            {
+                co_return server_error(rss_res.error());
+            }
+
         std::string response_body = co_await main_logic(
-            ioc, parse_rss_into_tree(youtube_rss_feed), cache, cache_subtitles,
-            cfg, semaphore_yt_dlp, semaphore_ollama);
+            ioc, parse_rss_into_tree(*rss_res), cache, cache_subtitles, cfg,
+            semaphore_yt_dlp, semaphore_ollama);
 
         http::response<http::string_body> res(http::status::ok, req.version());
         res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -672,17 +694,22 @@ namespace
         beast::flat_buffer buffer;
 
         beast::http::request<http::string_body> req;
-        co_await beast::http::async_read(stream, buffer, req,
-                                         corral::asio_awaitable);
+        auto [ec, bytes_read] = co_await beast::http::async_read(
+            stream, buffer, req, corral::asio_nothrow_awaitable);
+
+        if (ec)
+            {
+                co_return;
+            }
 
         auto response_generator = co_await handle_request(
             ioc, std::move(req), cache, cache_subtitles, cfg, semaphore_yt_dlp,
             semaphore_ollama);
 
         LOG_INFO(logger, "Sending response...");
-        // Send the response
-        co_await beast::async_write(stream, std::move(response_generator),
-                                    corral::asio_awaitable);
+        auto [ec_write, bytes_written]
+            = co_await beast::async_write(stream, std::move(response_generator),
+                                          corral::asio_nothrow_awaitable);
     }
 
     corral::Task<void> server_acceptor(auto& ioc, ABCCache& cache,
@@ -699,9 +726,14 @@ namespace
         {
             while (true)
                 {
-                    beast::tcp_stream stream{
-                        co_await acceptor.async_accept(corral::asio_awaitable)};
+                    auto [ec, sock] = co_await acceptor.async_accept(
+                        corral::asio_nothrow_awaitable);
+                    if (ec)
+                        {
+                            continue;
+                        }
 
+                    beast::tcp_stream stream{std::move(sock)};
                     LOG_INFO(logger, "New connection");
 
                     nursery.start(
